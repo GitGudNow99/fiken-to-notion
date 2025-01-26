@@ -53,34 +53,50 @@ To create the database:
    python fiken_to_notion.py
    ```
 
-## Automating execution
+## Setting up a service on Ubuntu
 
-To run the script periodically:
-1. Use a task scheduler like cron (on Linux/Mac) or Task Scheduler (on Windows).
-2. Example cron job to run every 3 hours:
+To run the script as a service on an Ubuntu server, follow these steps:
+
+1. Create a service file:
    ```sh
-   0 */3 * * * /usr/bin/python3 /path/to/fiken_to_notion.py >> /path/to/logs/fiken_to_notion.log 2>&1
+   sudo nano /etc/systemd/system/fiken_to_notion.service
    ```
 
-## Polling for new transactions
+2. Add the following content to the service file:
+   ```ini
+   [Unit]
+   Description=Fiken to Notion Integration Service
+   After=network.target
 
-The `polling.py` script is used to periodically check for new transactions in Fiken and sync them to Notion. It uses the `schedule` library to run the `check_for_new_transactions` function every 3 hours.
+   [Service]
+   User=your_username
+   WorkingDirectory=/path/to/FikenToNotion
+   ExecStart=/usr/bin/python3 /path/to/FikenToNotion/polling.py
+   Restart=always
 
-### How `polling.py` works
+   [Install]
+   WantedBy=multi-user.target
+   ```
 
-1. Load environment variables from the `.env` file.
-2. Set the initial `last_sync_time` to 1 day in the past.
-3. Define the `check_for_new_transactions` function:
-   - Fetch purchases from Fiken API since the last sync time.
-   - If new transactions are found, call `sync_fiken_to_notion` to sync them to Notion.
-   - Update the `last_sync_time` to the current time.
-4. Schedule the `check_for_new_transactions` function to run every 3 hours.
-5. Start an infinite loop to keep the script running and check for scheduled tasks.
+3. Reload the systemd manager configuration:
+   ```sh
+   sudo systemctl daemon-reload
+   ```
 
-To run the polling script:
-```sh
-python polling.py
-```
+4. Enable the service to start on boot:
+   ```sh
+   sudo systemctl enable fiken_to_notion.service
+   ```
+
+5. Start the service:
+   ```sh
+   sudo systemctl start fiken_to_notion.service
+   ```
+
+6. Check the status of the service:
+   ```sh
+   sudo systemctl status fiken_to_notion.service
+   ```
 
 ## Handling Fiken API throttling
 
