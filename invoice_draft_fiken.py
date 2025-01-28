@@ -1,7 +1,8 @@
 from flask import Flask, request, jsonify
 import requests
-from dotenv import load_dotenv
+from notion_client import Client
 import os
+from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
@@ -11,6 +12,9 @@ FIKEN_API_TOKEN = os.getenv("FIKEN_API_TOKEN")
 COMPANY_SLUG = os.getenv("COMPANY_SLUG")
 NOTION_API_TOKEN = os.getenv("NOTION_API_TOKEN")
 LYNDB25_ID = os.getenv("LYNDB25_ID")
+CUSTOMER_DB_ID = os.getenv("CUSTOMER_DB_ID")
+TIMEFØRING_DB_ID = os.getenv("TIMEFØRING_DB_ID")
+UTSTYRSLEIE_DB_ID = os.getenv("UTSTYRSLEIE_DB_ID")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 
 fiken_headers = {
@@ -18,166 +22,197 @@ fiken_headers = {
     'Content-Type': 'application/json'
 }
 
+notion = Client(auth=NOTION_API_TOKEN)
 app = Flask(__name__)
 
-# Fetch customers from Fiken
-def fetch_fiken_customers():
+# Helper functions
+def send_slack_message(message):
     """
-    Fetch all customers from Fiken API.
+    Send a message to Slack.
     """
+    payload = {"text": message}
     try:
-        url = f"https://api.fiken.no/api/v2/companies/{COMPANY_SLUG}/contacts"
-        response = requests.get(url, headers=fiken_headers)
+        response = requests.post(SLACK_WEBHOOK_URL, json=payload)
         response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching customers from Fiken: {e}")
-        return []
+    except Exception as e:
+        print(f"Failed to send Slack message: {e}")
 
-# Create a new customer in Fiken
-def create_fiken_customer(customer_name, email, organization_number=None):
+def fetch_project_details_from_notion(project_name):
     """
-    Create a new customer in Fiken.
+    Fetch specific project details from the lyndb25 Notion database.
     """
-    try:
-        url = f"https://api.fiken.no/api/v2/companies/{COMPANY_SLUG}/contacts"
-        payload = {
-            "name": customer_name,
-            "email": email,
-            "type": "customer"
+    response = notion.databases.query(database_id=LYNDB25_ID, filter={
+        "property": "Navn",
+        "title": {
+            "equals": project_name
         }
-        if organization_number:
-            payload["organizationNumber"] = organization_number
+    })
+    if not response["results"]:
+        raise ValueError(f"Project '{project_name}' not found in lyndb25 database.")
 
-        print("Creating customer in Fiken:", payload)
-        response = requests.post(url, headers=fiken_headers, json=payload)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"Error creating customer in Fiken: {e}")
-        return None
+    project = response["results"][0]["properties"]
 
-# Update an existing contact in Fiken to mark it as a customer
-def update_fiken_contact_to_customer(contact_id):
+    return {
+        "project_name": project["Navn"]["title"][0]["text"]["content"],
+        "project_manager": project["Prosjektleder"]["people"][0]["name"],
+        "customer_id": project["Kunde"]["relation"][0]["id"],
+        "mva_rate": project["MVA"]["number"] or 25  # Default to 25% if not provided
+    }
+
+def fetch_customer_details_from_notion(customer_id):
     """
-    Update an existing contact in Fiken to mark it as a customer.
+    Fetch customer details from the Notion customer database.
     """
-    try:
-        url = f"https://api.fiken.no/api/v2/companies/{COMPANY_SLUG}/contacts/{contact_id}"
-        payload = {
-            "customer": True  # Mark the contact as a customer
+    response = notion.databases.query(database_id=CUSTOMER_DB_ID, filter={
+        "property": "ID",
+        "text": {
+            "equals": customer_id
         }
-        print(f"Updating contact {contact_id} in Fiken to mark as customer:", payload)
-        response = requests.put(url, headers=fiken_headers, json=payload)
-        print("Fiken API Response Status Code:", response.status_code)
-        print("Fiken API Response Content:", response.text)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"Error updating contact in Fiken: {e}")
-        return None
+    })
+    if not response["results"]:
+        raise ValueError(f"Customer '{customer_id}' not found in customer database.")
 
-# Match or create a customer in Fiken
-def get_or_create_fiken_customer(customers, customer_name, email, organization_number=None):
-    """
-    Match an existing customer by name or create a new one in Fiken.
-    """
-    for customer in customers:
-        if customer["name"].lower() == customer_name.lower():
-            print(f"Matched customer: {customer}")
-            return customer
+    customer = response["results"][0]["properties"]
 
-    print(f"No match found for customer '{customer_name}'. Creating a new customer.")
-    return create_fiken_customer(customer_name, email, organization_number)
+    return {
+        "name": customer["Kundenavn"]["title"][0]["text"]["content"],
+        "organizationNumber": customer["Org.nr."]["number"],
+        "email": customer["E-post"]["email"],
+        "customer_project_manager": customer["Kontaktperson"]["people"][0]["name"]
+    }
 
-# Send draft invoice to Fiken
-def send_to_fiken_draft(order_lines, customer_id, bank_account_code, project_manager, project_name):
+def fetch_entries_from_notion(database_id, project_name, entry_type):
     """
-    Create a draft invoice in Fiken.
+    Fetch entries (timeføring or utstyrsleie) from Notion for a specific project.
     """
-    try:
-        draft_url = f"https://api.fiken.no/api/v2/companies/{COMPANY_SLUG}/invoices/drafts"
-        payload = {
-            "type": "invoice",
-            "issueDate": "2025-01-27",
-            "daysUntilDueDate": 14,
-            "customerId": customer_id,
-            "lines": order_lines,
-            "bankAccountCode": bank_account_code,
-            "currency": "NOK",
-            "cash": False,
-            "ourReference": project_manager,
-            "orderReference": project_name
+    response = notion.databases.query(database_id=database_id, filter={
+        "property": "Project",
+        "relation": {
+            "contains": project_name
         }
-        print("Payload being sent to Fiken (draft):", payload)
+    })
+    entries = []
+
+    for item in response["results"]:
+        properties = item["properties"]
+        if entry_type == "timeføring":
+            entries.append({
+                "description": properties["Beskrivelse"]["title"][0]["text"]["content"],
+                "unit_price": properties["Veil timespris"]["number"],
+                "discount": properties["Rabatt (%)"]["number"] or 0,
+                "quantity": properties["Timer"]["number"],
+                "total_price": properties["Totalt"]["number"],
+                "date": properties["Dato"]["date"]["start"]
+            })
+        elif entry_type == "utstyrsleie":
+            entries.append({
+                "description": properties["Utstyr"]["title"][0]["text"]["content"],
+                "unit_price": properties["Pris (veil)"]["number"],
+                "discount": properties["Rabatt"]["number"] or 0,
+                "days_used": properties["Bruksdager"]["number"],
+                "quantity": properties["Antall"]["number"]
+            })
+
+    return entries
+
+def prepare_order_lines(time_entries, equipment_entries, mva_rate):
+    """
+    Prepare invoice order lines.
+    """
+    order_lines = []
+
+    for entry in time_entries:
+        if "unit_price" in entry and entry["unit_price"] > 0:
+            net_price = entry["unit_price"] * (1 - (entry["discount"] / 100))
+            order_lines.append({
+                "description": entry["description"],
+                "unitPrice": int(net_price * 100),  # Convert to cents
+                "vatType": "HIGH",  # Assuming HIGH VAT; adjust as necessary
+                "quantity": entry.get("quantity", 1)
+            })
+
+    for entry in equipment_entries:
+        if "unit_price" in entry and entry["unit_price"] > 0:
+            net_price = entry["unit_price"] * (1 - (entry["discount"] / 100))
+            order_lines.append({
+                "description": entry["description"],
+                "unitPrice": int(net_price * 100),  # Convert to cents
+                "vatType": "HIGH",  # Assuming HIGH VAT; adjust as necessary
+                "quantity": entry.get("quantity", 1) * entry.get("days_used", 1)
+            })
+
+    return order_lines
+
+def send_to_fiken_draft(order_lines, customer_id, bank_account_code, project_manager, customer_project_manager, project_name):
+    """
+    Send draft invoice to Fiken.
+    """
+    draft_url = f"https://api.fiken.no/api/v2/companies/{COMPANY_SLUG}/invoices/drafts"
+    payload = {
+        "type": "invoice",  # Type is required. Adjust if needed.
+        "issueDate": "2025-01-27",
+        "daysUntilDueDate": 14,  # Number of days after issueDate for dueDate
+        "customerId": customer_id,
+        "lines": order_lines,
+        "bankAccountCode": bank_account_code,
+        "currency": "NOK",
+        "cash": False,
+        "ourReference": project_manager,  # Name of project manager from lyndb25
+        "yourReference": customer_project_manager,  # Name of customer's project manager
+        "orderReference": project_name  # Name of the project
+    }
+    print("Payload being sent to Fiken (draft):", payload)
+    try:
         response = requests.post(draft_url, headers=fiken_headers, json=payload)
         response.raise_for_status()
         print("Draft invoice successfully created in Fiken.")
+        send_slack_message(f"✅ Draft invoice for project '{project_name}' created successfully.")
     except requests.exceptions.RequestException as e:
-        print(f"Error creating draft invoice in Fiken: {e}")
-        if e.response is not None:
-            print("Error Response Content:", e.response.text)
+        error_message = f"❌ Failed to create draft invoice for project '{project_name}': {str(e)}"
+        print(error_message)
+        send_slack_message(error_message)
 
-# Create draft invoice process
-def create_draft_invoice(project_name, customer_name, email, organization_number=None):
+def handle_webhook(data):
     """
-    Handle the process of creating a draft invoice.
+    Process webhook data and create a draft invoice.
     """
-    customers = fetch_fiken_customers()
-    if not customers:
-        return {"error": "Failed to fetch customers from Fiken."}, 500
+    project_name = data.get("project_name")
+    if not project_name:
+        raise ValueError("Project name not provided in the webhook payload.")
 
-    matched_customer = get_or_create_fiken_customer(customers, customer_name, email, organization_number)
-    if not matched_customer:
-        return {"error": f"Failed to create or fetch customer '{customer_name}'."}, 500
+    mva_rate = 25
+    bank_account_code = "1920:10001"
 
-    customer_id = matched_customer["contactId"]
-    if not matched_customer.get("customer", False):  # Check if the contact is already a customer
-        print(f"Contact {customer_id} is not marked as a customer. Updating...")
-        updated_customer = update_fiken_contact_to_customer(customer_id)
-        if not updated_customer or not updated_customer.get("customer", False):
-            return {"error": f"Failed to mark contact '{customer_name}' as a customer."}, 500
+    # Fetch project details from lyndb25
+    project_details = fetch_project_details_from_notion(project_name)
 
-    order_lines = [
-        {
-            "description": "Example item",
-            "unitPrice": 50000,  # Price in øre (e.g., 500.00 NOK = 50000 øre)
-            "vatType": "HIGH",
-            "quantity": 2
-        }
-    ]
+    # Fetch customer details
+    customer_details = fetch_customer_details_from_notion(project_details["customer_id"])
 
-    send_to_fiken_draft(
-        order_lines=order_lines,
-        customer_id=customer_id,
-        bank_account_code="1920:10001",
-        project_manager="Maksymilian Lucow",
-        project_name=project_name
-    )
+    # Fetch timeføring and utstyrsleie entries
+    time_entries = fetch_entries_from_notion(TIMEFØRING_DB_ID, project_details["project_name"], "timeføring")
+    equipment_entries = fetch_entries_from_notion(UTSTYRSLEIE_DB_ID, project_details["project_name"], "utstyrsleie")
 
-    return {"message": f"Draft invoice for project '{project_name}' created successfully."}, 200
+    # Prepare Fiken draft invoice
+    customer_id = customer_details["organizationNumber"]
+    project_manager = project_details["project_manager"]
+    customer_project_manager = customer_details["customer_project_manager"]
+    project_name = project_details["project_name"]
 
-# Webhook route
+    order_lines = prepare_order_lines(time_entries, equipment_entries, mva_rate)
+    send_to_fiken_draft(order_lines, customer_id, bank_account_code, project_manager, customer_project_manager, project_name)
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """
-    Handle incoming webhook requests.
+    Handle incoming webhook requests from Notion.
     """
     try:
         data = request.json
-        project_name = data.get("project_name")
-        customer_name = data.get("customer_name")
-        email = data.get("email")
-        organization_number = data.get("organization_number")
-
-        if not project_name or not customer_name or not email:
-            return jsonify({"error": "Project name, customer name, and email are required."}), 400
-
-        result, status = create_draft_invoice(project_name, customer_name, email, organization_number)
-        return jsonify(result), status
+        handle_webhook(data)
+        return jsonify({"message": "Webhook processed successfully."}), 200
     except Exception as e:
-        print(f"Error processing webhook: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(port=5000)
