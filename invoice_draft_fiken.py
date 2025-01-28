@@ -12,7 +12,7 @@ FIKEN_API_TOKEN = os.getenv("FIKEN_API_TOKEN")
 COMPANY_SLUG = os.getenv("COMPANY_SLUG")
 NOTION_API_TOKEN = os.getenv("NOTION_API_TOKEN")
 LYNDB25_ID = os.getenv("LYNDB25_ID")
-CUSTOMER_DB_ID = os.getenv("CUSTOMER_DB_ID")  # Notion Customer Database
+CUSTOMER_DB_ID = os.getenv("CUSTOMER_DB_ID")  # Notion Customer Database ID
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 
 fiken_headers = {
@@ -36,7 +36,7 @@ def fetch_fiken_customers():
         return []
 
 # Create a new customer in Fiken
-def create_fiken_customer(name, email, org_number=None):
+def create_fiken_customer(name, email="default@example.com", org_number=None):
     try:
         url = f"https://api.fiken.no/api/v2/companies/{COMPANY_SLUG}/contacts"
         payload = {
@@ -55,9 +55,6 @@ def create_fiken_customer(name, email, org_number=None):
 
 # Update Notion with contactId
 def update_notion_customer(contact_id, notion_id):
-    """
-    Update the Notion database with the contactId from Fiken.
-    """
     try:
         notion.pages.update(
             page_id=notion_id,
@@ -71,14 +68,11 @@ def update_notion_customer(contact_id, notion_id):
 
 # Fetch customer from Notion by name
 def fetch_customer_from_notion(customer_name):
-    """
-    Retrieve customer details from the Notion database by name.
-    """
     try:
         response = notion.databases.query(
             database_id=CUSTOMER_DB_ID,
             filter={
-                "property": "Name",  # Adjust property name if different
+                "property": "Name",  # Adjust to match your Notion property name
                 "title": {
                     "equals": customer_name
                 }
@@ -91,18 +85,14 @@ def fetch_customer_from_notion(customer_name):
         print(f"Error fetching customer from Notion: {e}")
         return None
 
-# Match or create a customer
-def get_or_create_fiken_customer(customers, customer_name, email, org_number=None):
-    """
-    Match an existing customer in Fiken by name or email, or create a new one.
-    """
-    # Check if customer exists in Fiken
+# Match or create a customer in Fiken
+def get_or_create_fiken_customer(customers, customer_name, email="default@example.com", org_number=None):
     for customer in customers:
-        if customer["name"].lower() == customer_name.lower() or customer["email"] == email:
+        if customer["name"].lower() == customer_name.lower() or customer.get("email") == email:
             print(f"Matched customer in Fiken: {customer}")
             return customer
 
-    # Create a new customer in Fiken if no match
+    # Create new customer if no match is found
     print(f"No match found for customer '{customer_name}'. Creating a new customer.")
     new_customer = create_fiken_customer(name=customer_name, email=email, org_number=org_number)
     if new_customer:
@@ -114,16 +104,12 @@ def get_or_create_fiken_customer(customers, customer_name, email, org_number=Non
 
 # Fetch project details from Notion
 def fetch_project_details_from_notion(project_name):
-    """
-    Fetch project details from the Notion database.
-    """
     try:
         print(f"Fetching details for project: {project_name}")
-
         response = notion.databases.query(
             database_id=LYNDB25_ID,
             filter={
-                "property": "Navn",
+                "property": "Navn",  # Replace with your actual property name
                 "title": {
                     "equals": project_name
                 }
@@ -190,8 +176,8 @@ def handle_webhook():
         # Match or create customer in Fiken
         customer = get_or_create_fiken_customer(
             customers=customers,
-            customer_name=project_details["project_manager"],  # Use project manager as customer name
-            email="default@example.com"  # Replace with actual email if available
+            customer_name=project_details["project_manager"],
+            email="default@example.com"
         )
         if not customer:
             return jsonify({"error": "Failed to create or fetch customer."}), 500
@@ -202,7 +188,7 @@ def handle_webhook():
         ]
         invoice_response = send_to_fiken_draft(
             order_lines=order_lines,
-            customer_id=customer["contactId"],  # Use numeric contactId
+            customer_id=customer["contactId"],
             project_name=project_details["project_name"],
             project_manager=project_details["project_manager"],
         )
