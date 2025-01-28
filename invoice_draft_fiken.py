@@ -38,26 +38,30 @@ def send_slack_message(message):
         print(f"Failed to send Slack message: {e}")
 
 def fetch_project_details_from_notion(project_name):
-    """
-    Fetch specific project details from the lyndb25 Notion database.
-    """
     response = notion.databases.query(database_id=LYNDB25_ID, filter={
         "property": "Navn",
         "title": {
             "equals": project_name
         }
     })
+    print("Response from Notion API:", response)  # Debug the response to verify its structure
+
     if not response["results"]:
         raise ValueError(f"Project '{project_name}' not found in lyndb25 database.")
 
     project = response["results"][0]["properties"]
 
+    # Safely handle selection field for MVA
+    mva_rate_selection = project.get("MVA", {}).get("select", {}).get("name", "25%")  # Default to "25%" if not set
+    mva_rate = int(mva_rate_selection.replace("%", "")) if mva_rate_selection.endswith("%") else 25  # Convert to numeric
+
     return {
         "project_name": project["Navn"]["title"][0]["text"]["content"],
         "project_manager": project["Prosjektleder"]["people"][0]["name"],
         "customer_id": project["Kunde"]["relation"][0]["id"],
-        "mva_rate": project["MVA"]["number"] or 25  # Default to 25% if not provided
+        "mva_rate": mva_rate  # Use the parsed numeric value
     }
+
 
 def fetch_customer_details_from_notion(customer_id):
     """
