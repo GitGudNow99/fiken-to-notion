@@ -44,17 +44,23 @@ def fetch_project_details_from_notion(project_name):
             "equals": project_name
         }
     })
-    print("Response from Notion API:", response)  # Debug line
+    print("Response from Notion API:", response)  # Debug the full response
 
-    if not response["results"]:  # Check if results exist
+    if not response["results"]:
         raise ValueError(f"Project '{project_name}' not found in lyndb25 database.")
 
-    project = response["results"][0]["properties"]  # This could be causing the index error
+    project = response["results"][0]["properties"]
+
+    # Extract fields with proper handling
     return {
-        "project_name": project["Navn"]["title"][0]["text"]["content"],
-        "project_manager": project["Prosjektleder"]["people"][0]["name"],
-        "customer_id": project["Kunde"]["relation"][0]["id"],
-        "mva_rate": project["MVA"]["number"] or 25
+        "project_name": project.get("Navn", {}).get("title", [{}])[0].get("text", {}).get("content", "Unknown"),
+        "project_manager": project.get("Prosjektleder", {}).get("people", [{}])[0].get("name", "Unknown"),
+        "customer_id": (
+            project.get("Kunde", {}).get("relation", [{}])[0].get("id", "Unknown")
+            if project.get("Kunde", {}).get("relation", [])
+            else "Unknown"
+        ),
+        "mva_rate": project.get("MVA", {}).get("select", {}).get("name", "25%")  # Handle select type correctly
     }
 
 def fetch_customer_details_from_notion(customer_id):
