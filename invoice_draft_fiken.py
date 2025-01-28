@@ -27,13 +27,9 @@ app = Flask(__name__)
 
 # Helper function: Send Slack message
 def send_slack_message(message):
-    """
-    Send a message to Slack.
-    """
     if not SLACK_WEBHOOK_URL:
         print("No Slack webhook URL configured.")
         return
-
     payload = {"text": message}
     try:
         response = requests.post(SLACK_WEBHOOK_URL, json=payload)
@@ -41,13 +37,9 @@ def send_slack_message(message):
     except Exception as e:
         print(f"Failed to send Slack message: {e}")
 
-# Helper function: Fetch project details
+# Helper function: Fetch project details from Notion
 def fetch_project_details_from_notion(project_name):
-    """
-    Fetch specific project details from the lyndb25 Notion database.
-    """
     try:
-        print(f"Fetching project details for: {project_name}")
         response = notion.databases.query(
             database_id=LYNDB25_ID,
             filter={
@@ -57,13 +49,10 @@ def fetch_project_details_from_notion(project_name):
                 }
             }
         )
-        print("Response from Notion API:", response)
-
         if not response["results"]:
             raise ValueError(f"Project '{project_name}' not found in lyndb25 database.")
 
         project = response["results"][0]["properties"]
-
         return {
             "project_name": project.get("Navn", {}).get("title", [{}])[0].get("text", {}).get("content", "Unknown"),
             "project_manager": project.get("Prosjektleder", {}).get("people", [{}])[0].get("name", "Unknown"),
@@ -72,18 +61,42 @@ def fetch_project_details_from_notion(project_name):
                 if project.get("Kunde", {}).get("relation", [])
                 else "Unknown"
             ),
-            "mva_rate": project.get("MVA", {}).get("select", {}).get("name", "25%")  # Handle select type correctly
+            "mva_rate": project.get("MVA", {}).get("select", {}).get("name", "25%")
         }
     except Exception as e:
         print(f"Error fetching project details: {e}")
         raise
 
+# Helper function: Prepare draft invoice for Fiken
+def send_to_fiken_draft(order_lines, customer_id, bank_account_code, project_manager, customer_project_manager, project_name):
+    draft_url = f"https://api.fiken.no/api/v2/companies/{COMPANY_SLUG}/invoices/drafts"
+    payload = {
+        "type": "invoice",
+        "issueDate": "2025-01-27",  # Replace with dynamic date if needed
+        "daysUntilDueDate": 14,  # Invoice due in 14 days
+        "customerId": customer_id,
+        "lines": order_lines,
+        "bankAccountCode": bank_account_code,
+        "currency": "NOK",
+        "cash": False,
+        "ourReference": project_manager,
+        "yourReference": customer_project_manager,
+        "orderReference": project_name
+    }
+    print("Payload being sent to Fiken (draft):", payload)
+    try:
+        response = requests.post(draft_url, headers=fiken_headers, json=payload)
+        response.raise_for_status()
+        print("Draft invoice successfully created in Fiken.")
+        send_slack_message(f"✅ Draft invoice for project '{project_name}' created successfully.")
+    except requests.exceptions.RequestException as e:
+        error_message = f"❌ Failed to create draft invoice for project '{project_name}': {str(e)}"
+        print(error_message)
+        send_slack_message(error_message)
+
 # Main route: Handle incoming webhook
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    """
-    Handle incoming webhook requests from Notion.
-    """
     try:
         data = request.json
         project_name = data.get("project_name")
@@ -94,7 +107,26 @@ def webhook():
         project_details = fetch_project_details_from_notion(project_name)
         print("Fetched project details:", project_details)
 
-        # Example response for successful processing
+        # Example order lines (replace with real logic to fetch from Notion or database)
+        order_lines = [
+            {
+                "description": "Example item",
+                "unitPrice": 50000,  # Price in øre (e.g., 500.00 NOK = 50000 øre)
+                "vatType": "HIGH",  # Assuming HIGH VAT; adjust as necessary
+                "quantity": 2
+            }
+        ]
+
+        # Send to Fiken as a draft invoice
+        send_to_fiken_draft(
+            order_lines=order_lines,
+            customer_id=project_details["customer_id"],
+            bank_account_code="1920:10001",  # Replace with actual bank account code
+            project_manager=project_details["project_manager"],
+            customer_project_manager="Client Project Manager",  # Replace with actual data
+            project_name=project_details["project_name"]
+        )
+
         return jsonify({"message": f"Successfully processed project '{project_name}'."}), 200
     except Exception as e:
         print(f"Error processing webhook: {e}")
