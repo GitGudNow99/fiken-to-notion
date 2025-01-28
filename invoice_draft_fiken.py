@@ -35,8 +35,10 @@ def fetch_fiken_customers():
         print(f"Error fetching customers from Fiken: {e}")
         return []
 
-# Create a new customer in Fiken
 def create_fiken_customer(name, email="default@example.com", org_number=None):
+    """
+    Create a new customer in Fiken and return the response.
+    """
     try:
         url = f"https://api.fiken.no/api/v2/companies/{COMPANY_SLUG}/contacts"
         payload = {
@@ -46,7 +48,16 @@ def create_fiken_customer(name, email="default@example.com", org_number=None):
         }
         if org_number:
             payload["organizationNumber"] = org_number
+
+        print("Payload being sent to Fiken:", payload)  # Debug the payload
+
         response = requests.post(url, headers=fiken_headers, json=payload)
+
+        # Check if response is valid
+        if response.status_code != 200:
+            print(f"Error from Fiken API: {response.status_code}, {response.text}")
+            return None
+
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
