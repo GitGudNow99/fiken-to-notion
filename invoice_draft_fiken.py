@@ -1,11 +1,13 @@
+from flask import Flask, request, jsonify
 import requests
+from notion_client import Client
 import os
 from dotenv import load_dotenv
-from notion_client import Client
 
 # Load environment variables
 load_dotenv()
 
+# Fiken and Notion configuration
 FIKEN_API_TOKEN = os.getenv("FIKEN_API_TOKEN")
 COMPANY_SLUG = os.getenv("COMPANY_SLUG")
 NOTION_API_TOKEN = os.getenv("NOTION_API_TOKEN")
@@ -21,6 +23,19 @@ fiken_headers = {
 }
 
 notion = Client(auth=NOTION_API_TOKEN)
+app = Flask(__name__)
+
+# Helper functions
+def send_slack_message(message):
+    """
+    Send a message to Slack.
+    """
+    payload = {"text": message}
+    try:
+        response = requests.post(SLACK_WEBHOOK_URL, json=payload)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"Failed to send Slack message: {e}")
 
 def fetch_project_details_from_notion(project_name):
     """
@@ -147,20 +162,26 @@ def send_to_fiken_draft(order_lines, customer_id, bank_account_code, project_man
         "orderReference": project_name  # Name of the project
     }
     print("Payload being sent to Fiken (draft):", payload)
-    response = requests.post(draft_url, headers=fiken_headers, json=payload)
-    if response.status_code == 400:
-        print("Error creating draft invoice:", response.json())
-    response.raise_for_status()
-    print("Draft invoice successfully created in Fiken.")
+    try:
+        response = requests.post(draft_url, headers=fiken_headers, json=payload)
+        response.raise_for_status()
+        print("Draft invoice successfully created in Fiken.")
+        send_slack_message(f"✅ Draft invoice for project '{project_name}' created successfully.")
+    except requests.exceptions.RequestException as e:
+        error_message = f"❌ Failed to create draft invoice for project '{project_name}': {str(e)}"
+        print(error_message)
+        send_slack_message(error_message)
 
-def main():
+def handle_webhook(data):
+    """
+    Process webhook data and create a draft invoice.
+    """
+    project_name = data.get("project_name")
+    if not project_name:
+        raise ValueError("Project name not provided in the webhook payload.")
+
     mva_rate = 25
     bank_account_code = "1920:10001"
-
-    # Specify the project name for which the invoice should be created
-    project_name = request.json.get("project_name")
-    if not project_name:
-        raise ValueError("Project name not provided in the webhook payload.")  # Replace with dynamic input or external reference
 
     # Fetch project details from lyndb25
     project_details = fetch_project_details_from_notion(project_name)
@@ -181,5 +202,17 @@ def main():
     order_lines = prepare_order_lines(time_entries, equipment_entries, mva_rate)
     send_to_fiken_draft(order_lines, customer_id, bank_account_code, project_manager, customer_project_manager, project_name)
 
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    """
+    Handle incoming webhook requests from Notion.
+    """
+    try:
+        data = request.json
+        handle_webhook(data)
+        return jsonify({"message": "Webhook processed successfully."}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == "__main__":
-    main()
+    app.run(port=5000)
