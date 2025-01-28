@@ -99,22 +99,27 @@ def fetch_customer_from_notion(customer_name):
         print(f"Error fetching customer from Notion: {e}")
         return None
 
-# Match or create a customer in Fiken
+# Fetch customer from Notion or create in Fiken if not found
 def get_or_create_fiken_customer(customers, customer_name, email="default@example.com", org_number=None):
     for customer in customers:
         if customer["name"].lower() == customer_name.lower() or customer.get("email") == email:
             print(f"Matched customer in Fiken: {customer}")
             return customer
 
-    # Create new customer if no match is found
+    # Create a new customer if no match is found
     print(f"No match found for customer '{customer_name}'. Creating a new customer.")
     new_customer = create_fiken_customer(name=customer_name, email=email, org_number=org_number)
     if new_customer:
-        # Update Notion with the new contactId
-        notion_customer = fetch_customer_from_notion(customer_name)
-        if notion_customer:
-            update_notion_customer(new_customer["contactId"], notion_customer["id"])
-    return new_customer
+        # Use the returned contactId from Fiken
+        contact_id = new_customer.get("contactId")
+        if contact_id:
+            # Update Notion with the new contactId
+            notion_customer = fetch_customer_from_notion(customer_name)
+            if notion_customer:
+                update_notion_customer(contact_id, notion_customer["id"])
+            return new_customer
+    return None
+
 
 # Fetch project details from Notion
 def fetch_project_details_from_notion(project_name):
