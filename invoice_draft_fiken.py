@@ -57,6 +57,26 @@ def create_fiken_customer(customer_name, email, organization_number=None):
         print(f"Error creating customer in Fiken: {e}")
         return None
 
+# Update an existing contact in Fiken to mark it as a customer
+def update_fiken_contact_to_customer(contact_id):
+    """
+    Update an existing contact in Fiken to mark it as a customer.
+    """
+    try:
+        url = f"https://api.fiken.no/api/v2/companies/{COMPANY_SLUG}/contacts/{contact_id}"
+        payload = {
+            "customer": True  # Mark the contact as a customer
+        }
+        print(f"Updating contact {contact_id} in Fiken to mark as customer:", payload)
+        response = requests.put(url, headers=fiken_headers, json=payload)
+        print("Fiken API Response Status Code:", response.status_code)
+        print("Fiken API Response Content:", response.text)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"Error updating contact in Fiken: {e}")
+        return None
+
 # Match or create a customer in Fiken
 def get_or_create_fiken_customer(customers, customer_name, email, organization_number=None):
     """
@@ -112,6 +132,12 @@ def create_draft_invoice(project_name, customer_name, email, organization_number
         return {"error": f"Failed to create or fetch customer '{customer_name}'."}, 500
 
     customer_id = matched_customer["contactId"]
+    if not matched_customer.get("customer", False):  # Check if the contact is already a customer
+        print(f"Contact {customer_id} is not marked as a customer. Updating...")
+        updated_customer = update_fiken_contact_to_customer(customer_id)
+        if not updated_customer or not updated_customer.get("customer", False):
+            return {"error": f"Failed to mark contact '{customer_name}' as a customer."}, 500
+
     order_lines = [
         {
             "description": "Example item",
