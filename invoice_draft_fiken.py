@@ -111,6 +111,9 @@ def get_or_create_fiken_customer(customers, customer_name, email="default@exampl
     for customer in customers:
         if customer["name"].lower() == customer_name.lower() or customer.get("email") == email:
             print(f"Matched customer in Fiken: {customer}")
+            if customer.get("inactive"):
+                print(f"Customer {customer_name} is inactive in Fiken.")
+                return None  # Skip inactive customers
             return customer
 
     # Create a new customer if no match is found
