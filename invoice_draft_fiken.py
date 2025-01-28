@@ -57,6 +57,7 @@ def fetch_project_details_from_notion(project_name):
         "mva_rate": int(project.get("MVA", {}).get("select", {}).get("name", "25%").replace("%", ""))
     }
 
+
 def fetch_customer_details_from_notion(customer_id):
     """
     Fetch customer details from the Notion customer database.
