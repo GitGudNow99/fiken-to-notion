@@ -106,14 +106,21 @@ def fetch_customer_from_notion(customer_name):
         print(f"Error fetching customer from Notion: {e}")
         return None
 
-# Match or create a customer in Fiken
+# Match or create a customer in Fiken and update Notion with contactId
 def get_or_create_fiken_customer(customers, customer_name, email="default@example.com", org_number=None):
     for customer in customers:
         if customer["name"].lower() == customer_name.lower() or customer.get("email") == email:
             print(f"Matched customer in Fiken: {customer}")
+            
+            # Check if the customer is inactive
             if customer.get("inactive"):
-                print(f"Customer {customer_name} is inactive in Fiken.")
+                print(f"Customer {customer_name} is inactive in Fiken. Skipping invoice creation.")
                 return None  # Skip inactive customers
+            
+            # Update Notion with the matched customer contactId
+            notion_customer = fetch_customer_from_notion(customer_name)
+            if notion_customer:
+                update_notion_customer(customer["contactId"], notion_customer["id"])
             return customer
 
     # Create a new customer if no match is found
