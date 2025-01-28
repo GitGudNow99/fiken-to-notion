@@ -22,11 +22,8 @@ fiken_headers = {
 notion = Client(auth=NOTION_API_TOKEN)
 app = Flask(__name__)
 
-# Helper function: Fetch customers from Fiken
+# Fetch customers from Fiken
 def fetch_fiken_customers():
-    """
-    Fetch all customers from Fiken API.
-    """
     try:
         url = f"https://api.fiken.no/api/v2/companies/{COMPANY_SLUG}/contacts"
         response = requests.get(url, headers=fiken_headers)
@@ -38,11 +35,8 @@ def fetch_fiken_customers():
         print(f"Error fetching customers from Fiken: {e}")
         return []
 
-# Helper function: Create a new customer in Fiken
+# Create a new customer in Fiken
 def create_fiken_customer(customer_name, email, organization_number=None):
-    """
-    Create a new customer in Fiken.
-    """
     try:
         url = f"https://api.fiken.no/api/v2/companies/{COMPANY_SLUG}/contacts"
         payload = {
@@ -63,14 +57,10 @@ def create_fiken_customer(customer_name, email, organization_number=None):
         return customer
     except requests.exceptions.RequestException as e:
         print(f"Error creating customer in Fiken: {e}")
-        if hasattr(e, 'response') and e.response is not None:
-            print("Error Response Content:", e.response.text)
         return None
-# Helper function: Match or create a customer
+
+# Match or create a customer in Fiken
 def get_or_create_fiken_customer(customers, customer_name, email, organization_number=None):
-    """
-    Match an existing customer or create a new one in Fiken.
-    """
     for customer in customers:
         if customer["name"].lower() == customer_name.lower():
             print(f"Matched customer: {customer}")
@@ -80,11 +70,8 @@ def get_or_create_fiken_customer(customers, customer_name, email, organization_n
     new_customer = create_fiken_customer(customer_name, email, organization_number)
     return new_customer
 
-# Helper function: Send draft invoice to Fiken
+# Send draft invoice to Fiken
 def send_to_fiken_draft(order_lines, customer_id, bank_account_code, project_manager, project_name):
-    """
-    Create a draft invoice in Fiken.
-    """
     draft_url = f"https://api.fiken.no/api/v2/companies/{COMPANY_SLUG}/invoices/drafts"
     payload = {
         "type": "invoice",
@@ -105,26 +92,20 @@ def send_to_fiken_draft(order_lines, customer_id, bank_account_code, project_man
         print("Draft invoice successfully created in Fiken.")
     except requests.exceptions.RequestException as e:
         print(f"Error creating draft invoice in Fiken: {e}")
-        if e.response is not None:
-            print("Response content:", e.response.text)
+        if hasattr(e, 'response') and e.response is not None:
+            print("Error Response Content:", e.response.text)
 
-# Main function: Handle the full process
+# Create draft invoice process
 def create_draft_invoice(project_name, customer_name, email, organization_number=None):
-    """
-    Handle the process of creating a draft invoice.
-    """
-    # Fetch customers from Fiken
     customers = fetch_fiken_customers()
     if not customers:
         return {"error": "Failed to fetch customers from Fiken."}, 500
 
-    # Match or create the customer
     matched_customer = get_or_create_fiken_customer(customers, customer_name, email, organization_number)
     if not matched_customer:
         return {"error": f"Failed to create or fetch customer '{customer_name}'."}, 500
 
-    # Prepare the invoice payload
-    customer_id = matched_customer["id"]
+    customer_id = matched_customer["contactId"]  # Use contactId as the unique identifier
     order_lines = [
         {
             "description": "Example item",
@@ -134,23 +115,19 @@ def create_draft_invoice(project_name, customer_name, email, organization_number
         }
     ]
 
-    # Send the draft invoice to Fiken
     send_to_fiken_draft(
         order_lines=order_lines,
         customer_id=customer_id,
         bank_account_code="1920:10001",
-        project_manager="Maksymilian Lucow",  # Replace with project manager's name dynamically
+        project_manager="Maksymilian Lucow",
         project_name=project_name
     )
 
     return {"message": f"Draft invoice for project '{project_name}' created successfully."}, 200
 
-# Flask route: Handle incoming webhook
+# Webhook route
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    """
-    Handle incoming webhook requests.
-    """
     try:
         data = request.json
         project_name = data.get("project_name")
@@ -161,7 +138,6 @@ def webhook():
         if not project_name or not customer_name or not email:
             return jsonify({"error": "Project name, customer name, and email are required."}), 400
 
-        # Process draft invoice creation
         result, status = create_draft_invoice(project_name, customer_name, email, organization_number)
         return jsonify(result), status
     except Exception as e:
