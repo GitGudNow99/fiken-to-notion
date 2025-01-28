@@ -53,16 +53,19 @@ def create_fiken_customer(name, email="default@example.com", org_number=None):
 
         response = requests.post(url, headers=fiken_headers, json=payload)
 
-        # Check if response is valid
-        if response.status_code != 200:
+        # Check if the response is successful
+        if response.status_code == 201:
+            print("Customer created successfully in Fiken.")
+            print("Response from Fiken:", response.json())
+            return response.json()  # Return the customer data
+        else:
             print(f"Error from Fiken API: {response.status_code}, {response.text}")
             return None
 
-        response.raise_for_status()
-        return response.json()
     except requests.RequestException as e:
         print(f"Error creating customer in Fiken: {e}")
         return None
+
 
 # Update Notion with contactId
 def update_notion_customer(contact_id, notion_id):
