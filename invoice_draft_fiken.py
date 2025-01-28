@@ -38,25 +38,23 @@ def send_slack_message(message):
         print(f"Failed to send Slack message: {e}")
 
 def fetch_project_details_from_notion(project_name):
-    """
-    Fetch specific project details from the lyndb25 Notion database.
-    """
     response = notion.databases.query(database_id=LYNDB25_ID, filter={
         "property": "Navn",
         "title": {
             "equals": project_name
         }
     })
-    if not response["results"]:
+    print("Response from Notion API:", response)  # Debug line
+
+    if not response["results"]:  # Check if results exist
         raise ValueError(f"Project '{project_name}' not found in lyndb25 database.")
 
-    project = response["results"][0]["properties"]
-
+    project = response["results"][0]["properties"]  # This could be causing the index error
     return {
         "project_name": project["Navn"]["title"][0]["text"]["content"],
         "project_manager": project["Prosjektleder"]["people"][0]["name"],
         "customer_id": project["Kunde"]["relation"][0]["id"],
-        "mva_rate": project["MVA"]["number"] or 25  # Default to 25% if not provided
+        "mva_rate": project["MVA"]["number"] or 25
     }
 
 def fetch_customer_details_from_notion(customer_id):
