@@ -55,14 +55,17 @@ def create_fiken_customer(customer_name, email, organization_number=None):
 
         print("Creating customer in Fiken:", payload)
         response = requests.post(url, headers=fiken_headers, json=payload)
+        print("Fiken API Response Status Code:", response.status_code)
+        print("Fiken API Response Content:", response.text)
         response.raise_for_status()
         customer = response.json()
         print("Created customer in Fiken:", customer)
         return customer
     except requests.exceptions.RequestException as e:
         print(f"Error creating customer in Fiken: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            print("Error Response Content:", e.response.text)
         return None
-
 # Helper function: Match or create a customer
 def get_or_create_fiken_customer(customers, customer_name, email, organization_number=None):
     """
