@@ -35,6 +35,7 @@ def fetch_fiken_customers():
         print(f"Error fetching customers from Fiken: {e}")
         return []
 
+# Create a new customer in Fiken
 def create_fiken_customer(name, email="default@example.com", org_number=None):
     """
     Create a new customer in Fiken and return the response.
@@ -56,8 +57,15 @@ def create_fiken_customer(name, email="default@example.com", org_number=None):
         # Check if the response is successful
         if response.status_code == 201:
             print("Customer created successfully in Fiken.")
-            print("Response from Fiken:", response.json())
-            return response.json()  # Return the customer data
+            response_json = response.json()
+            print("Response from Fiken:", response_json)
+
+            # Check if the response contains contactId
+            if "contactId" in response_json:
+                return response_json  # Return the customer data with contactId
+            else:
+                print("Error: contactId not found in Fiken response.")
+                return None
         else:
             print(f"Error from Fiken API: {response.status_code}, {response.text}")
             return None
@@ -65,7 +73,6 @@ def create_fiken_customer(name, email="default@example.com", org_number=None):
     except requests.RequestException as e:
         print(f"Error creating customer in Fiken: {e}")
         return None
-
 
 # Update Notion with contactId
 def update_notion_customer(contact_id, notion_id):
@@ -99,7 +106,7 @@ def fetch_customer_from_notion(customer_name):
         print(f"Error fetching customer from Notion: {e}")
         return None
 
-# Fetch customer from Notion or create in Fiken if not found
+# Match or create a customer in Fiken
 def get_or_create_fiken_customer(customers, customer_name, email="default@example.com", org_number=None):
     for customer in customers:
         if customer["name"].lower() == customer_name.lower() or customer.get("email") == email:
@@ -110,16 +117,11 @@ def get_or_create_fiken_customer(customers, customer_name, email="default@exampl
     print(f"No match found for customer '{customer_name}'. Creating a new customer.")
     new_customer = create_fiken_customer(name=customer_name, email=email, org_number=org_number)
     if new_customer:
-        # Use the returned contactId from Fiken
-        contact_id = new_customer.get("contactId")
-        if contact_id:
-            # Update Notion with the new contactId
-            notion_customer = fetch_customer_from_notion(customer_name)
-            if notion_customer:
-                update_notion_customer(contact_id, notion_customer["id"])
-            return new_customer
-    return None
-
+        # If customer created successfully, update Notion with the new contactId
+        notion_customer = fetch_customer_from_notion(customer_name)
+        if notion_customer:
+            update_notion_customer(new_customer["contactId"], notion_customer["id"])
+    return new_customer
 
 # Fetch project details from Notion
 def fetch_project_details_from_notion(project_name):
@@ -207,7 +209,7 @@ def handle_webhook():
         ]
         invoice_response = send_to_fiken_draft(
             order_lines=order_lines,
-            customer_id=customer["contactId"],
+            customer_id=customer["contactId"],  # Use numeric contactId
             project_name=project_details["project_name"],
             project_manager=project_details["project_manager"],
         )
