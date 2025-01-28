@@ -42,20 +42,19 @@ def fetch_project_details_from_notion(project_name):
     Fetch project details from the Notion database.
     """
     try:
-        # Debug: Verify project_name being used
-        print("Fetching details for project:", project_name)
-
-        # Query Notion API with the correct filter
+        print(f"Fetching details for project: {project_name}")
+        
+        # Send the query to Notion with the correct filter
         response = notion.databases.query(
             database_id=LYNDB25_ID,
             filter={
-                "property": "Navn",  # Match the property name in Notion
-                "title": {  # Match the field type (title in this case)
+                "property": "Navn",  # This must match the property name in Notion
+                "title": {           # Use 'title' for title-type properties
                     "equals": project_name
                 }
             }
         )
-        print("Response from Notion API:", response)  # Debug the response
+        print("Response from Notion API:", response)
 
         if not response["results"]:
             raise ValueError(f"Project '{project_name}' not found in lyndb25 database.")
@@ -66,12 +65,11 @@ def fetch_project_details_from_notion(project_name):
             "project_name": project["Navn"]["title"][0]["text"]["content"],
             "project_manager": project["Prosjektleder"]["people"][0]["name"],
             "customer_id": project["Kunde"]["relation"][0]["id"],
-            "mva_rate": int(project.get("MVA", {}).get("select", {}).get("name", "25%").replace("%", ""))  # Handle MVA correctly
+            "mva_rate": int(project.get("MVA", {}).get("select", {}).get("name", "25%").replace("%", ""))
         }
     except Exception as e:
         print(f"Error fetching project details from Notion: {e}")
         raise
-
 
 
 def fetch_customer_details_from_notion(customer_id):
