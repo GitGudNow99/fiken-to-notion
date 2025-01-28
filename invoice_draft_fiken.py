@@ -160,7 +160,7 @@ def send_to_fiken_draft(order_lines, customer_id, project_name, project_manager)
             "type": "invoice",
             "issueDate": "2025-01-28",
             "daysUntilDueDate": 14,
-            "customerId": customer_id,
+            "customerId": customer_id,  # Use customerId (numeric)
             "lines": order_lines,
             "bankAccountCode": "1920:10001",
             "currency": "NOK",
@@ -168,10 +168,19 @@ def send_to_fiken_draft(order_lines, customer_id, project_name, project_manager)
             "ourReference": project_manager,
             "orderReference": project_name,
         }
-        print("Payload being sent to Fiken (draft):", payload)
+
+        print("Payload being sent to Fiken (draft):", payload)  # Debug the payload
+
         response = requests.post(url, headers=fiken_headers, json=payload)
-        response.raise_for_status()
+
+        # Check if the response is successful
+        if response.status_code != 201:
+            print(f"Error from Fiken API: {response.status_code}, {response.text}")
+            return None
+
+        print("Draft invoice created successfully:", response.json())
         return response.json()
+
     except requests.RequestException as e:
         print(f"Error creating draft invoice in Fiken: {e}")
         return None
