@@ -44,24 +44,18 @@ def fetch_project_details_from_notion(project_name):
             "equals": project_name
         }
     })
-    print("Response from Notion API:", response)  # Debug the response to verify its structure
+    print("Response from Notion API:", response)
 
     if not response["results"]:
         raise ValueError(f"Project '{project_name}' not found in lyndb25 database.")
 
     project = response["results"][0]["properties"]
-
-    # Safely handle selection field for MVA
-    mva_rate_selection = project.get("MVA", {}).get("select", {}).get("name", "25%")  # Default to "25%" if not set
-    mva_rate = int(mva_rate_selection.replace("%", "")) if mva_rate_selection.endswith("%") else 25  # Convert to numeric
-
     return {
         "project_name": project["Navn"]["title"][0]["text"]["content"],
         "project_manager": project["Prosjektleder"]["people"][0]["name"],
         "customer_id": project["Kunde"]["relation"][0]["id"],
-        "mva_rate": mva_rate  # Use the parsed numeric value
+        "mva_rate": int(project.get("MVA", {}).get("select", {}).get("name", "25%").replace("%", ""))
     }
-
 
 def fetch_customer_details_from_notion(customer_id):
     """
